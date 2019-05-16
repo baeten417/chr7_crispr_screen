@@ -1,0 +1,97 @@
+---
+title: "7q_crispr_screen_pilot"
+author: "Weihan Liu"
+date: "07/05/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+1.read in sgRNA annotation data from Sabatini 2017 study(genome wide CRISPR-KO screen)
+```{r}
+library(dplyr)
+library(ggplot2)
+library(utils)
+
+setwd("/Users/weihan/Desktop/Research/7q_crispr_screen_project/crispr_ko_screens/sabatini_2017")
+sgRNA_annotation <- read.csv("sgRNA_annotations.csv", stringsAsFactors = FALSE)
+head(sgRNA_annotation)
+```
+
+process sgRNA annotation file so it only contains genes and chromosome column, select those genes whose chromosome is 7. the resulted gene_chr will contain all the genes in this crispr library that is on chromosome 7
+```{r, echo=FALSE}
+gene_chr <- sgRNA_annotation[c(2,3)]
+gene_chr7 <- gene_chr %>%
+        filter(Chromosome == "chr7") %>% 
+        distinct()
+nrow(gene_chr7) #how many genes on chr7 in this crispr library
+colnames(gene_chr7) <- c("Gene","Chromosome")
+```
+
+load in the CRISPR score matrix, and use the gene_chr7 to select only those genes that are on chr7
+```{r, echo=FALSE}
+setwd("/Users/weihan/Desktop/Research/7q_crispr_screen_project/crispr_ko_screens/sabatini_2017")
+crispr_score_matrix <- read.csv("crispr_score_matrix.csv", stringsAsFactors = FALSE)
+crispr_score_matrix_chr7 <- inner_join(gene_chr7,crispr_score_matrix,by = "Gene") # this table contains all the genes that are on chr7, and their crispr scores across all the cell lines
+crispr_score_matrix_chr7 <- crispr_score_matrix_chr7[-3]
+
+```
+Find all genes whose crispr score is larger than 1(positively selected) in any of the cell lines
+```{r}
+library(stats)
+all_ts <- crispr_score_matrix_chr7 %>% 
+        filter(Molm.13>1 | NB4..replicate.2.>1| OCI.AML2 > 1 | OCI.AML3 >1 | OCI.AML5 > 1 | P31.FUJ > 1 |
+                                                   PL.21 > 1 | SKM.1 > 1 | TF.1 > 1 | THP.1 > 1)
+print.data.frame(all_ts)
+write.csv(all_ts,"/Users/weihan/Desktop/Research/7q_crispr_screen_project/crispr_ko_screens/sabatini_2017/sabatini_2017_hits.csv")
+
+ts_sabatini_2017 <- all_ts[1]
+heatmap(data.matrix(all_ts[3:16]),labRow = all_ts$Gene)
+```
+
+
+
+
+
+
+
+
+3.Now let's study Weissman_2017 CRISPRa/i screens
+For this study, the authors already give us a gene-phenotype table(genes and their growth phenotype score, so we could just use that table for analysis)
+First, load in the data, and select the genes from CRISPRa screen that has a gamma score < 1(negative growth phenotype, potential tumor suppressors)
+
+```{r}
+cs_matrix_weissman <- read.csv("/Users/weihan/Desktop/Research/7q_crispr_screen_project/crispr_i_a_screens/weissman_2014_crispr_a_i/gene_phenotypes.csv",stringsAsFactors = FALSE) #read in gene-phenotype table
+cs_matrix_weissman <- cs_matrix_weissman[-1,] #get rid of the column header
+colnames(cs_matrix_weissman) <- c("Gene","CRISPRa_growth","CRISPRi_growth") #assign correct column names
+cs_matrix_weissman <- transform(cs_matrix_weissman,
+                                CRISPRa_growth = as.numeric(CRISPRa_growth),
+                                CRISPRi_growth = as.numeric(CRISPRi_growth))  #coerce columns into correct data type
+str(cs_matrix_weissman) #double check data type for each column is correct
+cs_matrix_weissman_CRISPRa_hits <- filter(cs_matrix_weissman,CRISPRa_growth < 0) #select only teh genes with a negative CRISPRa score. activation of these gene impact K562 growth
+summary(cs_matrix_weissman_CRISPRa_hits)
+```
+
+Next, assign chromosome number to these genes and extract chr 7 genes, who have a nagative crispr growth score. We got 477 such genes in total
+```{r}
+library(ggrepel)
+gene_chr <- read.csv("/Users/weihan/Desktop/Research/7q_crispr_screen_project/crispr_i_a_screens/weissman_2014_crispr_a_i/gene_chr_table.csv",stringsAsFactors = FALSE) #read in the gene-chromosome table
+gene_chr <- gene_chr[c("Symbol","Chromosome")] #only retain the gene and chromosome name column
+colnames(gene_chr) <- c("Gene","Chromosome") #reassign proper column header
+gene_chr <- distinct(gene_chr) #remove duplicate rows
+
+cs_matrix_weissman_CRISPRa_hits <- inner_join(cs_matrix_weissman_CRISPRa_hits,gene_chr,by="Gene") 
+#join the chromosome information to the crispr growth score table
+cs_matrix_weissman_CRISPRa_hits <- cs_matrix_weissman_CRISPRa_hits %>% filter(Chromosome == "chr7") %>% arrange(CRISPRa_growth)
+#only select the genes that are on chromosome 7
+head(cs_matrix_weissman_CRISPRa_hits,n=50)
+
+cs_matrix_weissman_CRISPRa_hits[1:50,] %>% ggplot(aes(x=CRISPRa_growth,y=CRISPRi_growth)) + geom_point() + geom_text_repel(aes(label=Gene),nudge_x = 0.012)  #plot the CRISPRa vs CRISPRi growth score for the top 50 genes ranked by the most negative CRISPRa score(most negative growth phenotype), ideally, we want to see genes that have a low CRISPRa score and high CRISPRi score, these are our potential tumor suppressors
+
+```
+
+
+        
